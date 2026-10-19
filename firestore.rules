@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // صاحب المستند فقط (المستند باسم uid الحساب)
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // البريد لازم يكون مفعّل (حسابات Google مفعّلة تلقائياً)
+    function isVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    // شكل المستند المسموح به وحجمه
+    function validDoc() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['json', 'updatedAt'])
+        && d.keys().hasOnly(['json', 'updatedAt'])
+        && d.json is string
+        && d.json.size() > 2
+        && d.json.size() < 500000
+        && d.updatedAt is number
+        && d.updatedAt > 0
+        && d.updatedAt < request.time.toMillis() + 86400000;
+    }
+
+    match /users/{uid} {
+      allow get: if isOwner(uid) && isVerified();
+      allow list: if false;                      // ممنوع تصفّح قائمة المستخدمين نهائياً
+      allow create, update: if isOwner(uid) && isVerified() && validDoc();
+      allow delete: if isOwner(uid);
+    }
+
+    // أي مسار آخر ممنوع
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
